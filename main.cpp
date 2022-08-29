@@ -17,13 +17,13 @@ pplx::task<http_response> validate_license_key(http_client client, const string 
 {
   http_request req;
 
-  value meta;
+  value meta, scope;
+  scope["fingerprint"] = value::string(activation_token);
   meta["key"] = value::string(license_key);
-  //meta["scope"]["fingerprint"] = ;
+  meta["scope"] = scope;
 
   value body;
   body["meta"] = meta;
-
 
   req.headers().add("Content-Type", "application/vnd.api+json");
   req.headers().add("Accept", "application/json");
@@ -35,22 +35,26 @@ pplx::task<http_response> validate_license_key(http_client client, const string 
   return client.request(req);
 }
 
-json readlicensefile(string const &filepath){
+value readlicensefile(string const &filepath)
+{
   value license;
-  try{
+  try
+  {
     ifstream fp(filepath);
     stringstream str;
     str << fp.rdbuf();
     fp.close();
     license = value::parse(str);
-  }catch(json_exception &e){
+  }
+  catch (json_exception &e)
+  {
     cerr << "Error reading license file " << filepath << endl;
     exit(-1);
   }
-  return license
+  return license;
 }
 
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
   if (argc == 1)
   {
@@ -62,18 +66,20 @@ int main(int argc, char* argv[])
   }
 
   const string account_id = getenv("KEYGEN_ACCOUNT_ID");
-  cerr << "reading license file" << endl; 
-  json license = readlicensefile(argv[1]);
-  cerr << "key = " << license_key << endl;
+  string token;
+  cout << "enter machine fingerprint: ";
+  cin >> token;
+  cerr << "reading license file" << endl;
+  value license = readlicensefile(argv[1]);
+  cerr << "key = " << license << endl;
   http_client client(uri("https://api.keygen.sh/v1/accounts/" + account_id));
-
-  validate_license_key(client, license_key)
-    .then([](http_response res)
-    {
-      auto json = res.extract_json().get();
-      if (json.has_field("errors"))
+  validate_license_key(client, token, license["KEY"].as_string())
+      .then([](http_response res)
+            {
+      auto result = res.extract_json().get();
+      if (result.has_field("errors"))
       {
-        auto errors = json.at("errors").as_array();
+        auto errors = result.at("errors").as_array();
         auto err = errors[0];
 
         cerr << "[ERROR] "
@@ -86,15 +92,15 @@ int main(int argc, char* argv[])
         exit(1);
       }
 
-      auto data = json.at("data");
-      auto meta = json.at("meta");
+      auto data = result.at("data");
+      auto meta = result.at("meta");
 
       cout << meta.serialize() << endl;      
       if (meta.at("valid").as_bool())
       {
         cout << "[OK] "
              << "License key is valid: "
-          //<< "code=" << meta.at("code").as_string() << endl;/*<< " "
+             << "code=" << meta.at("constant").as_string() << endl << " "
              << "id=" << data.at("id").as_string()
              << endl;
       }
@@ -102,9 +108,8 @@ int main(int argc, char* argv[])
       {
         cerr << "[ERROR] "
              << "License key is not valid: "
-             << "code=" << meta.at("code").as_string()
+             << "code=" << meta.at("constant").as_string()
              << endl;
-      }
-    })
-    .wait();
+      } })
+      .wait();
 }

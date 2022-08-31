@@ -3,12 +3,11 @@
 #include <cpprest/http_client.h>
 #include <cpprest/filestream.h>
 #include <cpprest/base_uri.h>
-#include <openssl/sha.h>
 #include <IOKit/IOKitLib.h>
+#include "include/sha256/sha256.h"
 
 // Verify a license key using the validate-key action
-pplx::task<web::http::http_response> validate_license_key(web::http::client::http_client client, const std::string fingerprint,
-                                                          const std::string license_key)
+pplx::task<web::http::http_response> validate_license_key(web::http::client::http_client client, const std::string fingerprint, const std::string license_key)
 {
   web::http::http_request req;
 
@@ -49,28 +48,9 @@ web::json::value readlicensefile(std::string const &filepath)
   return license;
 }
 
-std::string tohex(std::string &src)
-{
-  std::stringstream ss;
-  for (unsigned int i = 0; i < src.size(); i++)
-    ss << std::setfill('0') << std::setw(2) << std::hex << (0xff & (unsigned int)src[i]);
-  return ss.str();
-}
-std::string tohex(const char *src, const int size)
-{
-  std::stringstream ss;
-  for (unsigned int i = 0; i < size; i++)
-    ss << std::setfill('0') << std::setw(2) << std::hex << (0xff & (unsigned int)src[i]);
-  return ss.str();
-}
-std::string anonymize(const std::string msg)
-{
-  char hash[SHA256_DIGEST_LENGTH];
-  SHA256((unsigned char *)msg.c_str(), msg.size(), (unsigned char *)hash);
-  return tohex(hash, SHA256_DIGEST_LENGTH);
-}
 std::string getuuid()
 {
+  // MacOS UUID
   const size_t bufSize = 512u;
   char buffer[bufSize];
   io_registry_entry_t ioRegistryRoot = IORegistryEntryFromPath(kIOMainPortDefault, "IOService:/");
@@ -93,8 +73,7 @@ int main(int argc, char *argv[])
   }
 
   const std::string account_id = getenv("KEYGEN_ACCOUNT_ID");
-  std::string fingerprint = anonymize(getuuid());
-
+  std::string fingerprint = SHA256::hashString(getuuid());
   web::json::value license = readlicensefile(argv[1]);
   web::http::client::http_client client(web::uri("https://api.keygen.sh/v1/accounts/" + account_id));
   validate_license_key(client, fingerprint, license["KEY"].as_string())
